@@ -35,7 +35,7 @@ defmodule CRDT do
   @callback value(internal_value :: internal_crdt) :: value()
   @callback downstream(update(), internal_crdt()) :: {:ok, internal_effect()} | {:error, reason}
   @callback update(internal_effect(), internal_crdt()) :: {:ok, internal_crdt()}
-  @callback require_state_downstream(update :: update()) :: {:ok, internal_crdt()}
+  @callback require_state_downstream(update :: update()) :: boolean()
 
   @callback equal(internal_crdt(), internal_crdt()) :: boolean()
 

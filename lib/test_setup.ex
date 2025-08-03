@@ -1,6 +1,8 @@
 # FIXME put TestSetup module under test/ folder
 # don't know why test_helper.exs does not recognize this module if put under test/
 defmodule TestSetup do
+  # Suppress Dialyzer warnings for :peer module false positives
+  @dialyzer {:nowarn_function, start_node: 1, stop_node: 1}
   require Logger
 
   def init() do
@@ -11,6 +13,7 @@ defmodule TestSetup do
   end
 
   # assumes that the node is down!
+  @spec start_node(binary()) :: atom()
   def start_node(name) do
     Logger.notice("Booting distributed node #{name}")
     cookie = :erlang.get_cookie()
@@ -19,20 +22,19 @@ defmodule TestSetup do
     {:ok, node, _peer_pid} =
       :peer.start_link(%{
         name: :"#{name}",
-        host: ~c"127.0.0.1",
-        args: [~c"-loader", ~c"inet", ~c"-hosts", ~c"127.0.0.1", ~c"-setcookie", ~c"#{cookie}"]
+        host: ~c"127.0.0.1", 
+        args: [~c"-loader", ~c"inet", ~c"-hosts", ~c"127.0.0.1", ~c"-setcookie", Atom.to_charlist(cookie)]
       })
     Logger.notice("Started node #{node}")
 
-    # initialize environment
-    rpc = &(_ = :rpc.call(node, &1, &2, &3))
-    rpc.(:code, :add_paths, [:code.get_path()])
-    rpc.(Application, :ensure_all_started, [:mix])
-    rpc.(Application, :ensure_all_started, [:logger])
-    rpc.(Logger, :configure, [[level: Logger.level()]])
-    rpc.(Mix, :env, [Mix.env()])
+    # initialize environment - fix RPC calls to be more explicit
+    :rpc.call(node, :code, :add_paths, [:code.get_path()])
+    :rpc.call(node, Application, :ensure_all_started, [:mix])
+    :rpc.call(node, Application, :ensure_all_started, [:logger])
+    :rpc.call(node, Logger, :configure, [[level: Logger.level()]])
+    :rpc.call(node, Mix, :env, [Mix.env()])
     Logger.notice("Starting minidote on node: #{inspect node}")
-    rpc.(Application, :ensure_all_started, [:minidote])
+    :rpc.call(node, Application, :ensure_all_started, [:minidote])
 
     node
   end
@@ -48,7 +50,7 @@ defmodule TestSetup do
   #         :peer.start_link(%{
   #           name: :"#{name}#{i}",
   #           host: ~c"127.0.0.1",
-  #           args: [~c"-loader", ~c"inet", ~c"-hosts", ~c"127.0.0.1", ~c"-setcookie", ~c"#{cookie}"]
+  #           args: [~c"-loader", ~c"inet", ~c"-hosts", ~c"127.0.0.1", ~c"-setcookie", Atom.to_charlist(cookie)]
   #         })
 
   #       name
@@ -57,14 +59,16 @@ defmodule TestSetup do
   #   nodes
   # end
 
-  @spec stop_node(atom) :: :ok
+  @spec stop_node(atom()) :: :ok
   def stop_node(node) do
     :peer.stop(node)
+    :ok
   end
 
-  @spec stop_nodes([atom]) :: :ok
+  @spec stop_nodes([atom()]) :: :ok
   def stop_nodes(nodes) do
     Enum.each(nodes, &:peer.stop/1)
+    :ok
   end
 
   def mock_link_layer(nodes, options) do

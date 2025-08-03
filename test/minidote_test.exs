@@ -16,7 +16,7 @@ defmodule MinidoteTest do
 
     # Clean up persistent files
     node_name = Atom.to_string(node())
-    state_file = "minidote_state_#{node_name}.dets"
+    state_file = "minidote_snapshot_#{node_name}.dets"
     log_file = "minidote_log_#{node_name}.dets"
     File.rm(state_file)
     File.rm(log_file)

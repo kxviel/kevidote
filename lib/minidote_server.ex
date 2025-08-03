@@ -3,16 +3,10 @@ defmodule Minidote.Server do
   require Logger
 
   @moduledoc """
-  The MinidoteServer GenServer that manages CRDT state and handles causally consistent operations.
+  Simple CRDT server for Minidote database.
   """
 
-  @type key :: {binary(), CRDT.t(), binary()}
-  @type vector_clock :: %{atom() => integer()}
-  @type crdt_state :: %{key() => term()}
-  @type waiting_request :: {GenServer.from(), term()}
-
   defstruct [
-    :link_layer, 
     :vector_clock, 
     :crdt_states, 
     :waiting_requests,
@@ -33,18 +27,22 @@ defmodule Minidote.Server do
 
   @impl true
   def init(_) do
-    {:ok, causal_broadcast} = CausalBroadcast.start_link(:minidote, __MODULE__)
+    causal_broadcast = case CausalBroadcast.start_link(:minidote, __MODULE__) do
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
+    end
     
-    {:ok, restored_states} = PersistenceManager.restore_state()
+    {:ok, restored_states, restored_clock} = PersistenceManager.restore_state()
     
     state = %__MODULE__{
-      vector_clock: %{node() => 0},
+      vector_clock: restored_clock,
       crdt_states: restored_states,
       waiting_requests: [],
       causal_broadcast: causal_broadcast
     }
     
-    Logger.info("MinidoteServer started on node #{node()}, restored #{map_size(restored_states)} CRDT states")
+    Process.send_after(self(), :create_snapshot, 30_000)
+    Logger.info("MinidoteServer started, restored #{map_size(restored_states)} states")
     {:ok, state}
   end
 
@@ -93,6 +91,17 @@ defmodule Minidote.Server do
   end
 
   @impl true
+  def handle_info(:create_snapshot, state) do
+    # Create periodic snapshot
+    PersistenceManager.snapshot_state(state.crdt_states, state.vector_clock)
+    
+    # Schedule next snapshot
+    Process.send_after(self(), :create_snapshot, 30_000)
+    
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(msg, state) do
     Logger.warning("Unhandled info message in MinidoteServer: #{inspect msg}")
     {:noreply, state}
@@ -112,8 +121,8 @@ defmodule Minidote.Server do
     
     new_vector_clock = merge_vector_clocks(state.vector_clock, sender_clock)
     
+    # Log remote update for crash recovery
     PersistenceManager.log_operation({:remote_update, downstream_effects, sender_clock})
-    PersistenceManager.persist_state(new_crdt_states)
     
     new_state = %{state | 
       crdt_states: new_crdt_states, 
@@ -142,8 +151,8 @@ defmodule Minidote.Server do
     
     CausalBroadcast.broadcast(downstream_effects)
     
+    # Log local update for crash recovery
     PersistenceManager.log_operation({:update, updates, new_vector_clock})
-    PersistenceManager.persist_state(new_crdt_states)
     
     new_state = %{state | 
       crdt_states: new_crdt_states, 

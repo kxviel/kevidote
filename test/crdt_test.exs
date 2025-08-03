@@ -113,7 +113,7 @@ defmodule CRDTTest do
     
     # Add an item
     {:ok, add_effect} = CRDT.downstream(:set_aw_op, {:add, "item1"}, state)
-    {:ok, state_with_item} = CRDT.update(:set_aw_op, add_effect, state)
+    {:ok, _state_with_item} = CRDT.update(:set_aw_op, add_effect, state)
     
     # Concurrently add and remove the same item (add should win)
     {:ok, add_effect2} = CRDT.downstream(:set_aw_op, {:add, "item1"}, state)
